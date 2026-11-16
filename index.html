@@ -96,6 +96,7 @@ button { font: inherit; color: inherit; cursor: pointer; -webkit-tap-highlight-c
 .menu-nav button:hover { color: var(--muted); }
 .menu.open .menu-nav button { opacity: 1; transform: none; transition-delay: .25s, .25s, 0s; }
 .menu.open .menu-nav button:nth-child(2) { transition-delay: .33s, .33s, 0s; }
+.menu.open .menu-nav button:nth-child(3) { transition-delay: .41s, .41s, 0s; }
 
 /* Hero */
 .hero {
@@ -205,6 +206,41 @@ dialog::backdrop { background: #000a; backdrop-filter: blur(4px); }
 }
 .dl-row a:hover { background: var(--text); color: var(--bg); }
 
+/* Панель разработчика */
+.field { display: grid; gap: .35rem; margin-bottom: 1rem; }
+.field > label, .check { font-size: .9rem; color: var(--muted); }
+input:not([type="checkbox"]), select {
+  width: 100%; min-height: 2.9rem; padding: .7rem 1rem;
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--line); border-radius: .75rem; font: inherit;
+}
+input[type="file"] { padding: .6rem .8rem; }
+input::placeholder { color: #6c6c74; }
+.check { display: flex; align-items: center; gap: .6rem; margin: 0 0 1rem; }
+.check input { width: 1.1rem; height: 1.1rem; accent-color: var(--text); }
+.crow { display: grid; grid-template-columns: 9rem 1fr auto; gap: .5rem; margin-bottom: .5rem; }
+.ghost {
+  background: none; color: var(--text); border: 1px solid var(--line); border-radius: 999px;
+  padding: .6rem 1.1rem; min-height: 2.75rem; font-weight: 700; font-size: .9rem;
+}
+.ghost:hover { background: var(--surface-2); }
+button.btn { border: 0; }
+button.btn:disabled { opacity: .5; cursor: default; transform: none; box-shadow: none; }
+.dev-bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.25rem; }
+.msg { color: var(--muted); font-size: .9rem; margin: .75rem 0 0; min-height: 1.4em; }
+.hint { color: var(--muted); font-size: .85rem; margin: 1.25rem 0 0; }
+.hint a { color: var(--text); }
+progress { width: 100%; height: .5rem; margin-top: 1rem; accent-color: var(--text); }
+.status {
+  margin-top: 1rem; padding: .9rem 1rem; background: var(--bg);
+  border: 1px solid var(--line); border-radius: .9rem;
+  font-size: .9rem; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+@media (max-width: 40rem) {
+  .crow { grid-template-columns: 1fr auto; }
+  .crow select { grid-column: 1 / -1; }
+}
+
 @media (max-width: 60rem) {
   .hero { grid-template-columns: 1fr; padding: 1.5rem 0 3rem; }
   header { padding-right: 4.5rem; }
@@ -298,6 +334,7 @@ dialog::backdrop { background: #000a; backdrop-filter: blur(4px); }
     <nav class="menu-nav">
       <button type="button" data-open="creators">Создатели</button>
       <button type="button" data-open="versions">Предыдущие версии</button>
+      <button type="button" data-open="dev">Панель разработчика</button>
     </nav>
   </div>
 </div>
@@ -458,18 +495,21 @@ const views = {
     html: () => '<ul class="vlist">' + releases.map((r, i) =>
       `<li>${detailsHTML(r, { meta: true, download: true, latest: i === 0 })}</li>`
     ).join("") + "</ul>"
-  }
+  },
+  dev: { title: "Панель разработчика", html: () => devHTML(), init: () => devInit() }
 };
 menu.addEventListener("click", e => {
   const key = e.target.closest("[data-open]")?.dataset.open;
   if (!key) return;
   document.getElementById("dlg-title").textContent = views[key].title;
   document.getElementById("dlg-body").innerHTML = views[key].html();
+  if (views[key].init) views[key].init();
   setMenu(false);
   dlg.showModal();
 });
 document.getElementById("dlg-close").addEventListener("click", () => dlg.close());
-dlg.addEventListener("click", e => { if (e.target === dlg) dlg.close(); });
+dlg.addEventListener("click", e => { if (e.target === dlg && !devBusy) dlg.close(); });
+dlg.addEventListener("cancel", e => { if (devBusy) e.preventDefault(); });
 
 /* Кнопка звука и озвучка кликов */
 const soundBtn = document.getElementById("sound-btn");
@@ -520,6 +560,184 @@ document.addEventListener("click", e => {
   Sound.play(opening ? "unfold" : "fold");
 });
 dlg.addEventListener("close", () => Sound.play("close"));
+
+/* ===== Панель разработчика ===== */
+// Паролем служит токен GitHub: его проверяет сам GitHub, без него записать на сайт ничего нельзя.
+const REPO = "StereoBack/Stickman-Rope-Hero-Remaster";
+const TOKEN_KEY = "dev-token";
+let devToken = "", devBusy = false;
+
+async function gh(path, opts = {}) {
+  const r = await fetch("https://api.github.com" + path, {
+    ...opts,
+    headers: { Accept: "application/vnd.github+json", Authorization: "Bearer " + devToken, ...(opts.headers || {}) }
+  });
+  if (!r.ok) {
+    let m = ""; try { m = (await r.json()).message; } catch (e) {}
+    const err = new Error(m || "HTTP " + r.status); err.status = r.status; throw err;
+  }
+  return r.json();
+}
+function uploadAsset(url, file, name, onProgress) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open("POST", url + "?name=" + encodeURIComponent(name));
+    x.setRequestHeader("Authorization", "Bearer " + devToken);
+    x.setRequestHeader("Accept", "application/vnd.github+json");
+    x.setRequestHeader("Content-Type", "application/vnd.android.package-archive");
+    x.upload.onprogress = e => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
+    x.onload = () => x.status < 300 ? resolve(JSON.parse(x.responseText)) : reject(new Error("HTTP " + x.status));
+    x.onerror = () => reject(new Error("браузер не смог отправить файл"));
+    x.send(file);
+  });
+}
+const b64 = str => { let bin = ""; new TextEncoder().encode(str).forEach(b => bin += String.fromCharCode(b)); return btoa(bin); };
+const unb64 = c => new TextDecoder().decode(Uint8Array.from(atob(c.replace(/\n/g, "")), ch => ch.charCodeAt(0)));
+const sizeText = bytes => { const mb = bytes / 1048576; return (mb < 10 ? mb.toFixed(1).replace(".", ",") : Math.round(mb)) + " МБ"; };
+const todayRu = () => new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" }).replace(/ г\.$/, "");
+// пробные записи: с примерами в тексте или без ссылки на APK
+const isTest = r => r.example === true || r.apk === "#" || (r.changes || []).some(c => /^Пример/i.test(c.text || ""));
+
+function devHTML() {
+  return `
+  <div id="dev-login">
+    <p class="empty">Публиковать версии может только владелец сайта. Паролем служит токен GitHub: его проверяет сам GitHub.</p>
+    <div class="field" style="margin-top:1rem">
+      <label for="dev-token">Пароль (токен GitHub)</label>
+      <input id="dev-token" type="password" autocomplete="off" placeholder="github_pat_...">
+    </div>
+    <label class="check"><input type="checkbox" id="dev-remember" checked> Запомнить на этом устройстве</label>
+    <button class="btn" type="button" id="dev-login-btn">Войти</button>
+    <p class="msg" id="dev-login-msg"></p>
+    <p class="hint">Токен создаётся <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">на GitHub</a>. Repository access: Only select repositories и выбери этот репозиторий. Permissions: Contents, Read and write.</p>
+  </div>
+  <div id="dev-main" hidden>
+    <div class="dev-bar"><span class="d">Вы вошли как владелец</span><button class="ghost" type="button" id="dev-logout">Выйти</button></div>
+    <div class="field"><label for="dev-ver">Номер версии</label><input id="dev-ver" placeholder="0.3.1" autocomplete="off"></div>
+    <div class="field"><label for="dev-title">Название обновления (необязательно)</label><input id="dev-title" autocomplete="off"></div>
+    <div class="field"><label for="dev-date">Дата</label><input id="dev-date" autocomplete="off"></div>
+    <div class="field"><label>Что изменилось</label><div id="dev-changes"></div><button class="ghost" type="button" id="dev-add">Добавить пункт</button></div>
+    <div class="field"><label for="dev-file">Файл APK</label><input id="dev-file" type="file" accept=".apk,application/vnd.android.package-archive"></div>
+    <div class="field"><label for="dev-size">Размер</label><input id="dev-size" placeholder="48 МБ" autocomplete="off"></div>
+    <div class="field"><label for="dev-link">Или ссылка на APK, если файл уже загружен вручную</label><input id="dev-link" placeholder="https://github.com/..." autocomplete="off"></div>
+    <button class="btn" type="button" id="dev-publish">Опубликовать</button>
+    <progress id="dev-prog" max="100" value="0" hidden></progress>
+    <div class="status" id="dev-status" hidden></div>
+  </div>`;
+}
+
+function devInit() {
+  const $ = id => document.getElementById(id);
+  const login = $("dev-login"), main = $("dev-main"), msg = $("dev-login-msg");
+  const status = $("dev-status"), prog = $("dev-prog");
+  const log = t => { status.hidden = false; status.textContent += (status.textContent ? "\n" : "") + t; status.scrollIntoView({ block: "nearest" }); };
+
+  function addRow() {
+    const row = document.createElement("div");
+    row.className = "crow";
+    row.innerHTML = '<select aria-label="Тип"><option value="add">Добавлено</option><option value="fix">Исправлено</option><option value="change">Изменено</option></select>' +
+      '<input aria-label="Что изменилось" placeholder="Что именно" autocomplete="off">' +
+      '<button class="ghost" type="button" aria-label="Убрать пункт">×</button>';
+    row.querySelector("button").onclick = () => { if (document.querySelectorAll(".crow").length > 1) row.remove(); };
+    $("dev-changes").appendChild(row);
+  }
+  function showMain() {
+    login.hidden = true; main.hidden = false;
+    $("dev-changes").innerHTML = ""; addRow();
+    $("dev-date").value = todayRu();
+  }
+  async function tryLogin(tok, remember) {
+    msg.textContent = "Проверяю…";
+    devToken = tok;
+    try {
+      const d = await gh("/repos/" + REPO);
+      if (d.permissions && !d.permissions.push) throw new Error("у токена нет прав на запись в репозиторий");
+      try { remember ? localStorage.setItem(TOKEN_KEY, tok) : localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+      msg.textContent = "";
+      showMain();
+    } catch (e) {
+      devToken = "";
+      try { localStorage.removeItem(TOKEN_KEY); } catch (er) {}
+      msg.textContent = e.status === 401 ? "Неверный пароль (токен)." : "Не удалось войти: " + e.message;
+    }
+  }
+
+  $("dev-login-btn").onclick = () => { const t = $("dev-token").value.trim(); if (t) tryLogin(t, $("dev-remember").checked); };
+  $("dev-token").onkeydown = e => { if (e.key === "Enter") $("dev-login-btn").click(); };
+  $("dev-logout").onclick = () => {
+    devToken = ""; try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+    main.hidden = true; login.hidden = false; $("dev-token").value = "";
+  };
+  $("dev-add").onclick = addRow;
+  $("dev-file").onchange = () => { const f = $("dev-file").files[0]; if (f) $("dev-size").value = sizeText(f.size); };
+
+  $("dev-publish").onclick = async () => {
+    if (devBusy) return;
+    const ver = $("dev-ver").value.trim().replace(/^v/i, "");
+    const title = $("dev-title").value.trim();
+    const date = $("dev-date").value.trim() || todayRu();
+    const file = $("dev-file").files[0];
+    let link = $("dev-link").value.trim();
+    let size = $("dev-size").value.trim();
+    const changes = [...document.querySelectorAll(".crow")]
+      .map(r => ({ type: r.querySelector("select").value, text: r.querySelector("input").value.trim() }))
+      .filter(c => c.text);
+    status.textContent = "";
+    if (!ver) return log("Укажи номер версии.");
+    if (!changes.length) return log("Добавь хотя бы один пункт изменений.");
+    if (!file && !link) return log("Выбери файл APK или вставь ссылку на него.");
+    if (!size && file) size = sizeText(file.size);
+
+    devBusy = true; $("dev-publish").disabled = true;
+    try {
+      if (file && !link) {
+        log("Создаю релиз v" + ver + "…");
+        let rel;
+        try {
+          rel = await gh("/repos/" + REPO + "/releases", {
+            method: "POST",
+            body: JSON.stringify({ tag_name: "v" + ver, name: "v" + ver, body: changes.map(c => "- " + labels[c.type] + ": " + c.text).join("\n") })
+          });
+        } catch (e) {
+          if (e.status === 422) throw new Error("релиз v" + ver + " уже существует, поменяй номер версии");
+          throw e;
+        }
+        log("Загружаю APK…");
+        prog.hidden = false; prog.value = 0;
+        try {
+          const asset = await uploadAsset(rel.upload_url.replace(/\{.*$/, ""), file, "Stickman-Rope-Hero-Remaster-" + ver + ".apk", f => { prog.value = Math.round(f * 100); });
+          link = asset.browser_download_url;
+        } catch (e) {
+          prog.hidden = true;
+          throw new Error("релиз создан, но файл не загрузился (" + e.message + "). Открой " + rel.html_url + " , нажми Edit, прикрепи APK вручную, скопируй ссылку на файл, вставь её в поле ссылки и нажми «Опубликовать» ещё раз.");
+        }
+        prog.hidden = true;
+        log("APK загружен.");
+      }
+
+      log("Обновляю список версий…");
+      const f = await gh("/repos/" + REPO + "/contents/releases.json", { cache: "no-store" });
+      const old = JSON.parse(unb64(f.content));
+      const list = old.filter(r => !isTest(r) && r.version !== ver);
+      const removed = old.length - list.length;
+      list.unshift({ version: ver, date, size, apk: link, title, changes });
+      await gh("/repos/" + REPO + "/contents/releases.json", {
+        method: "PUT",
+        body: JSON.stringify({ message: "Версия " + ver, content: b64(JSON.stringify(list, null, 2) + "\n"), sha: f.sha })
+      });
+      releases = list; render();
+      if (removed) log("Пробные записи убраны.");
+      log("Готово! Версия " + ver + " опубликована. Остальные увидят её на сайте примерно через минуту.");
+      Sound.play("chime");
+    } catch (e) {
+      log("Ошибка: " + e.message);
+    }
+    devBusy = false; $("dev-publish").disabled = false;
+  };
+
+  let saved = ""; try { saved = localStorage.getItem(TOKEN_KEY) || ""; } catch (e) {}
+  if (saved) tryLogin(saved, true);
+}
 </script>
 </body>
 </html>
