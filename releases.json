@@ -1,24 +1,15 @@
 [
   {
-    "version": "0.3.0",
-    "date": "16 ноября 2026",
-    "size": "48 МБ",
-    "apk": "#",
-    "title": "Первая версия для двоих",
+    "version": "1.3.1",
+    "date": "17 ноября 2026",
+    "size": "136 МБ",
+    "apk": "https://github.com/StereoBack/Stickman-Rope-Hero-Remaster/releases/download/v1.3.1/1.3.0._StickmanRopeHero_.4.4.8.apk",
+    "title": "Test update.",
     "changes": [
-      { "type": "add", "text": "Пример: новый уровень или режим игры." },
-      { "type": "fix", "text": "Пример: исправлен вылет при запуске." },
-      { "type": "change", "text": "Пример: поменяли управление, стало плавнее." }
-    ]
-  },
-  {
-    "version": "0.2.0",
-    "date": "2 ноября 2026",
-    "size": "46 МБ",
-    "apk": "#",
-    "title": "",
-    "changes": [
-      { "type": "add", "text": "Пример: сохранение прогресса." }
+      {
+        "type": "add",
+        "text": "Test."
+      }
     ]
   }
 ]
